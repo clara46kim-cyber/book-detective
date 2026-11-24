@@ -74,4 +74,70 @@ function shorten(s, max) {
   return (lastStop > max * 0.5 ? cut.slice(0, lastStop + 1) : cut.trimEnd() + "…");
 }
 
-function
+function score(row, words) {
+  const title = str(row["제목"]);
+  const theme = str(row["테마명"]) + " " + str(row["주제"]);
+  const content = stripHtml(str(row["내용"]));
+  const author = str(row["저자"]);
+  let s = 0;
+  for (const w of words) {
+    if (title.includes(w)) s += 10;
+    if (theme.includes(w)) s += 5;
+    if (author.includes(w)) s += 3;
+    if (content.includes(w)) s += 2;
+  }
+  return s;
+}
+
+function toBook(row) {
+  return {
+    title: str(row["제목"]),
+    author: str(row["저자"]),
+    publisher: str(row["발행처"]),
+    summary: shorten(stripHtml(str(row["내용"])), 220),
+    cover: "" // 이 데이터에는 표지 이미지가 없어요 (화면에서 📕 아이콘으로 대체)
+  };
+}
+
+module.exports = async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "POST 요청만 사용할 수 있어요." });
+  }
+
+  const apiKey = process.env.ODCLOUD_API_KEY;
+  if (!apiKey) {
+    return res
+      .status(500)
+      .json({ error: "서버에 ODCLOUD_API_KEY 환경변수가 설정되지 않았어요." });
+  }
+
+  let body = req.body;
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch (e) { body = {}; }
+  }
+  const keyword = String((body && body.keyword) || "").trim().slice(0, 50);
+  if (!keyword) {
+    return res.status(400).json({ error: "키워드를 입력해 주세요." });
+  }
+
+  try {
+    const rows = await loadAll(cleanKey(apiKey));
+    const words = keyword.split(/\s+/).filter(Boolean);
+
+    const books = rows
+      .map((row) => ({ row, s: score(row, words) }))
+      .filter((x) => x.s > 0 && str(x.row["제목"]))
+      .sort((a, b) => b.s - a.s)
+      .slice(0, MAX_RESULTS)
+      .map((x) => toBook(x.row));
+
+    return res.status(200).json({ books });
+  } catch (err) {
+    console.error("odcloud error:", err.status, err.message, err.detail || "");
+    if (err.status === 401) {
+      return res.status(502).json({ error: "도서관 API 인증키가 올바르지 않아요. 키를 확인해 주세요." });
+    }
+    return res.status(502).json({ error: "도서관 API에서 책 정보를 가져오지 못했어요. 잠시 후 다시 시도해 주세요." });
+  }
+};
