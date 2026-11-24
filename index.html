@@ -96,9 +96,57 @@
     .meta b { color: var(--peach-dark); }
     .summary { margin-top: 10px; font-size: 15px; line-height: 1.65; }
 
-    .guest-view { text-align: center; padding-top: 18vh; }
-    .guest-view .big { font-size: 64px; }
-    .guest-view p { font-size: 26px; margin: 10px 0 28px; }
+    /* 방명록 화면 */
+    .guest-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .guest-title { text-align: center; margin: 6px 0 22px; }
+    .guest-title .big { font-size: 54px; }
+    .guest-title h2 { margin: 4px 0 0; font-size: 30px; }
+
+    .guest-form {
+      display: grid; gap: 12px;
+      background: var(--card);
+      border: 3px solid var(--line);
+      border-radius: 22px;
+      padding: 18px;
+      box-shadow: 0 5px 0 var(--line);
+    }
+    .guest-form input, .guest-form textarea {
+      width: 100%;
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      padding: 12px 14px;
+      font-size: 16px;
+      color: var(--brown);
+      font-family: inherit;
+      outline: none;
+    }
+    .guest-form input:focus, .guest-form textarea:focus { border-color: var(--peach-dark); }
+    .guest-form textarea { min-height: 100px; resize: vertical; line-height: 1.5; }
+    .guest-form button {
+      justify-self: end;
+      border: none; background: var(--peach-dark); color: #fff;
+      border-radius: 999px; padding: 12px 28px; font-size: 17px;
+      font-weight: 700; cursor: pointer; font-family: inherit;
+    }
+    .guest-form button:hover { background: #ea8545; }
+    .guest-form button:disabled { opacity: .6; cursor: wait; }
+
+    #guestStatus { text-align: center; margin: 18px 0; font-size: 16px; min-height: 22px; }
+    #guestStatus.error { color: #c0492b; }
+
+    #guestList { display: grid; gap: 14px; }
+    .entry {
+      background: var(--card);
+      border: 3px solid var(--line);
+      border-radius: 18px;
+      padding: 14px 16px;
+      box-shadow: 0 4px 0 var(--line);
+    }
+    .entry-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+    .entry-name { font-size: 17px; color: var(--peach-dark); font-weight: 700; word-break: break-all; }
+    .entry-date { font-size: 12px; opacity: .65; white-space: nowrap; }
+    .entry-msg { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 
     @media (max-width: 560px) {
       h1 { font-size: 29px; }
@@ -130,10 +178,24 @@
   </div>
 
   <!-- 방명록 화면 -->
-  <div id="guestView" class="wrap guest-view hidden">
-    <div class="big">📖</div>
-    <p>준비 중</p>
-    <button id="backBtn" class="btn-back" type="button">← 돌아가기</button>
+  <div id="guestView" class="wrap hidden">
+    <div class="guest-head">
+      <button id="backBtn" class="btn-back" type="button">← 돌아가기</button>
+    </div>
+
+    <div class="guest-title">
+      <div class="big">📖</div>
+      <h2>방명록</h2>
+    </div>
+
+    <form id="guestForm" class="guest-form" autocomplete="off">
+      <input id="guestName" type="text" placeholder="이름" maxlength="20" required />
+      <textarea id="guestMessage" placeholder="책탐정 코난에게 남기고 싶은 말을 적어주세요" maxlength="500" required></textarea>
+      <button id="guestSubmit" type="submit">등록</button>
+    </form>
+
+    <div id="guestStatus"></div>
+    <section id="guestList"></section>
   </div>
 
   <script>
@@ -145,7 +207,7 @@
     const statusEl = document.getElementById("status");
     const resultsEl = document.getElementById("results");
 
-    // 화면 전환
+    // 화면 전환 (방명록 목록 불러오기는 아래 module 스크립트가 같은 버튼 클릭에 반응해서 처리)
     document.getElementById("guestBtn").addEventListener("click", () => {
       mainView.classList.add("hidden");
       guestView.classList.remove("hidden");
@@ -233,6 +295,129 @@
         setStatus("😢 " + err.message, true);
       } finally {
         searchBtn.disabled = false;
+      }
+    });
+  </script>
+
+  <!-- 방명록 (Firebase Firestore) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import {
+      getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    // ▼▼▼ 여기에 Firebase 웹 설정값을 붙여넣으세요 ▼▼▼
+    const firebaseConfig = {
+      apiKey: "AIzaSyD2KtoDCAb2SBSb0e7OD0B0VZCCM8rJe5A",
+      authDomain: "book-detective-9c0e6.firebaseapp.com",
+      projectId: "book-detective-9c0e6",
+      storageBucket: "book-detective-9c0e6.firebasestorage.app",
+      messagingSenderId: "602604053039",
+      appId: "1:602604053039:web:9ac987c029521ce7d79cda"
+    };
+    // ▲▲▲ 여기까지 ▲▲▲
+
+    const configured = !String(firebaseConfig.apiKey).startsWith("YOUR_");
+    let db = null;
+    if (configured) {
+      db = getFirestore(initializeApp(firebaseConfig));
+    }
+
+    const guestBtn = document.getElementById("guestBtn");
+    const guestForm = document.getElementById("guestForm");
+    const nameInput = document.getElementById("guestName");
+    const msgInput = document.getElementById("guestMessage");
+    const submitBtn = document.getElementById("guestSubmit");
+    const guestStatus = document.getElementById("guestStatus");
+    const guestList = document.getElementById("guestList");
+
+    function setGuestStatus(msg, isError) {
+      guestStatus.textContent = msg || "";
+      guestStatus.classList.toggle("error", !!isError);
+    }
+
+    function formatDate(ts) {
+      if (!ts || typeof ts.toDate !== "function") return "";
+      const d = ts.toDate();
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function renderEntry(data) {
+      const card = document.createElement("article");
+      card.className = "entry";
+
+      const head = document.createElement("div");
+      head.className = "entry-head";
+      const name = document.createElement("span");
+      name.className = "entry-name";
+      name.textContent = data.name || "익명";
+      const date = document.createElement("span");
+      date.className = "entry-date";
+      date.textContent = formatDate(data.createdAt);
+      head.appendChild(name);
+      head.appendChild(date);
+
+      const msg = document.createElement("p");
+      msg.className = "entry-msg";
+      msg.textContent = data.message || "";
+
+      card.appendChild(head);
+      card.appendChild(msg);
+      return card;
+    }
+
+    async function loadEntries() {
+      if (!configured) {
+        guestList.innerHTML = "";
+        setGuestStatus("Firebase 설정값이 아직 입력되지 않았어요.", true);
+        return;
+      }
+      setGuestStatus("📖 방명록을 불러오는 중이에요...");
+      try {
+        const q = query(collection(db, "guestbook"), orderBy("createdAt", "desc"));
+        const snap = await getDocs(q);
+        guestList.innerHTML = "";
+        if (snap.empty) {
+          setGuestStatus("아직 글이 없어요. 첫 번째 글을 남겨주세요!");
+          return;
+        }
+        setGuestStatus("");
+        snap.forEach((doc) => guestList.appendChild(renderEntry(doc.data())));
+      } catch (err) {
+        console.error(err);
+        setGuestStatus("😢 방명록을 불러오지 못했어요. (" + (err.code || err.message) + ")", true);
+      }
+    }
+
+    // 방명록 화면을 열 때마다 최신순으로 불러오기
+    guestBtn.addEventListener("click", loadEntries);
+
+    guestForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim();
+      const message = msgInput.value.trim();
+      if (!name || !message) return;
+      if (!configured) {
+        setGuestStatus("Firebase 설정값이 아직 입력되지 않았어요.", true);
+        return;
+      }
+
+      submitBtn.disabled = true;
+      setGuestStatus("✏️ 등록하는 중이에요...");
+      try {
+        await addDoc(collection(db, "guestbook"), {
+          name,
+          message,
+          createdAt: serverTimestamp()
+        });
+        msgInput.value = "";
+        await loadEntries();
+      } catch (err) {
+        console.error(err);
+        setGuestStatus("😢 등록에 실패했어요. (" + (err.code || err.message) + ")", true);
+      } finally {
+        submitBtn.disabled = false;
       }
     });
   </script>
