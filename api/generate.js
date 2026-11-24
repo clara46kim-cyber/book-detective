@@ -90,13 +90,24 @@ function score(row, words) {
   return s;
 }
 
-// 행에서 ISBN(13자리 또는 10자리)을 찾아요. 필드 이름에 isbn이 들어 있으면 OK
+// 행에서 ISBN(13자리 또는 10자리)을 찾아요.
 function findIsbn(row) {
+  const pick = (v) => {
+    const m = String(v || "").replace(/[-\s]/g, "").match(/97[89]\d{10}|\d{9}[\dXx]/);
+    return m ? m[0] : "";
+  };
+  // 1) 필드 이름에 isbn / 도서번호가 들어 있는 항목
   for (const k of Object.keys(row)) {
-    if (/isbn/i.test(k)) {
-      const m = String(row[k] || "").replace(/-/g, "").match(/97[89]\d{10}|\d{9}[\dXx]/);
-      if (m) return m[0];
+    if (/isbn|도서번호/i.test(k)) {
+      const r = pick(row[k]);
+      if (r) return r;
     }
+  }
+  // 2) 그래도 없으면 다른 항목의 값에서 13자리 ISBN(978/979로 시작)을 찾기
+  for (const k of Object.keys(row)) {
+    if (/제목|내용/.test(k)) continue;
+    const m = String(row[k] || "").replace(/[-\s]/g, "").match(/97[89]\d{10}/);
+    if (m) return m[0];
   }
   return "";
 }
