@@ -1,6 +1,7 @@
 // Vercel 서버리스 함수: POST /api/generate
 // 공공데이터포털 "국립중앙도서관_사서추천도서(국립어린이청소년도서관)" (odcloud) 에서
 // 키워드와 관련된 그림책을 찾아 { books: [...] } 형태로 돌려줍니다.
+// 표지는 ISBN으로 구글 도서(Google Books)에서 찾아옵니다.
 // 환경변수 ODCLOUD_API_KEY 에 공공데이터포털 인증키를 넣어 주세요.
 
 const ENDPOINT =
@@ -89,13 +90,47 @@ function score(row, words) {
   return s;
 }
 
+// 행에서 ISBN(13자리 또는 10자리)을 찾아요. 필드 이름에 isbn이 들어 있으면 OK
+function findIsbn(row) {
+  for (const k of Object.keys(row)) {
+    if (/isbn/i.test(k)) {
+      const m = String(row[k] || "").replace(/-/g, "").match(/97[89]\d{10}|\d{9}[\dXx]/);
+      if (m) return m[0];
+    }
+  }
+  return "";
+}
+
+// ISBN으로 구글 도서에서 표지 이미지 주소를 찾아요 (없으면 빈 문자열)
+async function findCover(isbn) {
+  if (!isbn) return "";
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const r = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1`,
+      { signal: ctrl.signal }
+    );
+    clearTimeout(t);
+    if (!r.ok) return "";
+    const j = await r.json();
+    const links =
+      j.items && j.items[0] && j.items[0].volumeInfo && j.items[0].volumeInfo.imageLinks;
+    const url = links && (links.thumbnail || links.smallThumbnail);
+    return url ? url.replace(/^http:/, "https:") : "";
+  } catch (e) {
+    return "";
+  }
+}
+
 function toBook(row) {
   return {
     title: str(row["제목"]),
     author: str(row["저자"]),
     publisher: str(row["발행처"]),
     summary: shorten(stripHtml(str(row["내용"])), 220),
-    cover: "" // 이 데이터에는 표지 이미지가 없어요 (화면에서 📕 아이콘으로 대체)
+    cover: "",
+    isbn: findIsbn(row)
   };
 }
 
@@ -131,6 +166,14 @@ module.exports = async function handler(req, res) {
       .sort((a, b) => b.s - a.s)
       .slice(0, MAX_RESULTS)
       .map((x) => toBook(x.row));
+
+    // 표지 이미지 찾기 (동시에 요청해서 빠르게)
+    await Promise.all(
+      books.map(async (b) => {
+        b.cover = await findCover(b.isbn);
+        delete b.isbn;
+      })
+    );
 
     return res.status(200).json({ books });
   } catch (err) {
