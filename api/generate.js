@@ -159,7 +159,8 @@ function toBook(row) {
     publisher: str(row["발행처"]),
     summary: shorten(stripHtml(str(row["내용"])), 220),
     cover: "",
-    isbn: findIsbn(row)
+    isbn: findIsbn(row),
+    debug: JSON.stringify(Object.fromEntries(Object.entries(row).filter(([k]) => k !== "내용")))
   };
 }
 
