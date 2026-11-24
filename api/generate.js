@@ -189,7 +189,6 @@ module.exports = async function handler(req, res) {
     await Promise.all(
       books.map(async (b) => {
         b.cover = await findCover(b.isbn);
-        delete b.isbn;
       })
     );
 
