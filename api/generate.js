@@ -104,14 +104,32 @@ function findIsbn(row) {
 // ISBN으로 구글 도서에서 표지 이미지 주소를 찾아요 (없으면 빈 문자열)
 async function findCover(isbn) {
   if (!isbn) return "";
+
+  // 1순위: 카카오 책 검색 (한국 책 표지가 잘 나와요)
+  const kakaoKey = process.env.KAKAO_REST_API_KEY;
+  if (kakaoKey) {
+    try {
+      const r = await fetch(
+        `https://dapi.kakao.com/v3/search/book?target=isbn&query=${isbn}`,
+        { headers: { Authorization: `KakaoAK ${kakaoKey}` } }
+      );
+      if (r.ok) {
+        const j = await r.json();
+        const doc = j.documents && j.documents[0];
+        if (doc && doc.thumbnail) return doc.thumbnail.replace(/^http:/, "https:");
+      } else {
+        console.error("kakao error:", r.status);
+      }
+    } catch (e) {
+      console.error("kakao fetch failed:", e.message);
+    }
+  }
+
+  // 2순위: 구글 도서
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
     const r = await fetch(
-      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1`,
-      { signal: ctrl.signal }
+      `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1`
     );
-    clearTimeout(t);
     if (!r.ok) return "";
     const j = await r.json();
     const links =
